@@ -32,10 +32,6 @@ module WU
     end #}}}2
     Gem::Version.prepend GemVersion
 
-    # @param [Array<Symbol,String>] :tags, explicit order of tags. Nil is always the first
-    def self.parse(str, untagged: nil, tags:, regexp:) #{{{2
-    end #}}}2
-
     def self.valid_tag?(tag) #{{{2
       tag.nil? || TAG_RE_A.match?(tag)
     end #}}}2
@@ -62,10 +58,15 @@ module WU
       }
     end #}}}2
 
-
     def same_minor?(oth) #{{{2
       @tags_order.all?{|_t|
         @versions[_t].same_minor?(oth.versions[_t])
+      }
+    end #}}}2
+
+    def same_minor_map(oth) #{{{2
+      @tags_order.map{|_t|
+        [ @versions[_t], oth.versions[_t], @versions[_t].same_minor?(oth.versions[_t]) ]
       }
     end #}}}2
 
@@ -104,12 +105,29 @@ module WU
       end
     end #}}}2
 
+    def hash # :nodoc #{{{2
+      @versions.hash 
+    end #}}}2
+
+    def eql?(oth) #{{{2
+      return nil unless oth.kind_of?(self.class)
+      oth.equal?(self) || (
+                       @versions.eql?(oth.versions) &&
+                       @tags_order.eql?(oth.instance_variable_get(:@tags_order)) &&
+                       @untagged.eql?(oth.instance_variable_get(:@untagged))
+      )
+    end
+
     def regexp #{{{2
       @regexp ||= (
         Regexp.new( '^(' + @tags_order.map.with_index{|_tag, _i|
           "(?<#{_tag || '_untagged_'}>(?<tag#{_i}>#{_tag})#{WU::SemVer::SEM_VER_RE.source})"
         }.join('-') + ')$', Regexp::EXTENDED )
       ) 
+    end #}}}2
+
+    def correct?(str) #{{{2
+      regexp.match?(str)
     end #}}}2
 
     def clear! #{{{2
@@ -121,6 +139,40 @@ module WU
       self.clone(freeze: false)
         .clear!
         .parse!(str)
+    end #}}}2
+
+    # @option [Hash] kwopts
+    # @option kwopts [Symbol] :untagged used to speficy new untagged, if needed.
+    def slice(*tags, **kwopts, &on_not_found) #{{{2
+      blk = if on_not_found
+              Proc.new do |_key|
+                yield _key, self
+              end
+            end
+
+      self.class.new tags.each_with_object({}){|_t,_acc|
+        _acc[_t] = @versions.fetch(_t, &blk)
+      }, untagged: kwopts.fetch(:untagged, @untagged)
+    end #}}}2
+
+    def set_lowest_version #{{{2
+      self.clone(freeze: false)
+        .set_lowest_version!
+    end #}}}2
+
+    def lowest? #{{{2
+      @versions.any?(&:lowest?)
+    end #}}}2
+
+    def set_lowest_version! #{{{2
+      @versions.transform_values!{WU::SemVer.lowest}
+      self
+    end
+
+    def freeze #{{{2
+      @versions.freeze
+      regexp
+      super
     end #}}}2
 
     def parse!(str) #{{{2
@@ -165,7 +217,7 @@ module WU
     # @return self
     def add_versions(ver) #{{{2
       case ver
-      when WU::SemVer::SEM_VER_RE_A
+      when String, Gem::Version #WU::SemVer::SEM_VER_RE_A
         add ver, tag: nil
       when Hash, Array
         ver.each_with_index do |(_tag, _ver),_i|
@@ -178,16 +230,19 @@ module WU
             else
               raise RuntimeError, "Nil tag must be the first #{_ver}"
             end
-          elsif TAG_RE_A.match?(_tag)
-            _tag = _tag.to_sym
-            @versions[_tag] =  _parsed_ver
-            @tags_order = @tags_order.dup.push(_tag).freeze unless @tags_order.include?(_tag)
           else
-            raise ArgumentError, "Invalid tag #{String === _tag ? _tag : _tag.class}"
+            add _parsed_ver, tag: _tag
           end
         end
+      else
+        raise ArgumentError, "Invalid version #{ver.class}"
       end
       return self
+    end #}}}2
+
+    def initialize_copy(orig) #{{{2
+      super
+      @versions = @versions.dup
     end #}}}2
   end #}}}1
 end

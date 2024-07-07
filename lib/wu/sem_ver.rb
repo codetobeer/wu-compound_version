@@ -25,7 +25,7 @@ module WU
                 (?: _r (?<pkgrel> \d+ ) )?
             )
           )?
-        )
+        )?
       )/x.freeze
 
     SEM_VER_RE_A = /^#{SEM_VER_RE}$/.freeze
@@ -44,6 +44,15 @@ module WU
       SEM_VER_RE_A.match?(version) || super
     end #}}}2
 
+    def self.lowest #{{{2
+      @lowest ||= self.allocate.tap{|lowest_ver|
+        lowest_ver.instance_variable_set :@version, '-1'
+        lowest_ver.instance_variable_set :@prerelease, false
+        lowest_ver.instance_variable_set :@segments, (_seg = [-1].freeze)
+        lowest_ver.instance_variable_set :@canonical_segments, _seg
+      }.freeze
+    end #}}}2
+
     def initialize(version) #{{{2
       @pkgrel = nil
       @orig_version = nil
@@ -55,6 +64,10 @@ module WU
       end 
       super
       @version.freeze
+    end #}}}2
+
+    def lowest? #{{{2
+      @version == '-1'
     end #}}}2
 
     def to_s #{{{2
