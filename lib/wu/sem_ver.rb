@@ -21,9 +21,9 @@ module WU
           \. (?<patch>\d+)
           (?<extra>
             (?: . \d+)*
-            (?: (?:- [a-zA-Z0-9]+) | 
-                (?: _r (?<pkgrel> \d+ ) )?
-            )
+            (?: (?: [-_] r (?<pkgrel> \d+ ) ) | 
+                (?:- [a-zA-Z0-9]+)
+            )?
           )?
         )?
       )/x.freeze
@@ -59,7 +59,7 @@ module WU
       if (m = SEM_VER_RE_A.match(version)) && m[:pkgrel] 
         @pkgrel = Integer(m[:pkgrel])
         @orig_version = version.freeze
-        version = version.sub(/_r(\d+)$/, '.\1')  # convert the alpine pkg release to be a subpatch version
+        version = version.sub(/[-_]r(\d+)$/, '.\1')  # convert the alpine pkg release to be a subpatch version
                                                   # this will allow compare to work as expected with Gem::Version
       end 
       super
