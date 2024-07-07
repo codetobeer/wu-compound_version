@@ -5,14 +5,20 @@
 # Copyright: 2024- Emanuele Caratti
 # ------------------------------------------------------------------------
 
-require 'rubygems/version'
+require_relative 'sem_ver'
 
 module WU
   class CompoundVersion #{{{1
     include Comparable
 
-    module GemVersion #{{{3
-      def <=>(other)
+    # RE #{{{2
+    TAG_RE   = /[A-Za-z0-9_][A-Za-z0-9_.-]*/.freeze
+    TAG_RE_A = /^#{TAG_RE}$/.freeze
+
+    # }}}2
+
+    module GemVersion #{{{2
+      def <=>(other) #{{{3
         if other.kind_of?(::WU::CompoundVersion)
           compound_compare = other <=> self
           if compound_compare
@@ -24,58 +30,49 @@ module WU
         super
       end #}}}3
     end #}}}2
-
     Gem::Version.prepend GemVersion
-    # RE #{{{2
-    SEM_VER_RE = /
-      (?<ver>
-        (?<rel>
-         (?<maj>\d+) \.
-         (?<min>\d+)
-        )
-        (?: 
-          \. (?<patch>\d+)
-          (?<extra>
-            (?: . \d+)*
-            (?: [-_] [a-zA-Z0-9]+ )?
-          )?
-        )
-      )/x.freeze
 
-    SEM_VER_RE_A = /^#{SEM_VER_RE}$/.freeze
+    # @param [Array<Symbol,String>] :tags, explicit order of tags. Nil is always the first
+    def self.parse(str, untagged: nil, tags:, regexp:) #{{{2
+    end #}}}2
 
-    TAG_RE   = /[A-Za-z0-9_][A-Za-z0-9_.-]*/.freeze
-    TAG_RE_A = /^#{TAG_RE}$/.freeze
-
-    # }}}2
-
-    def self.parse_semver(str) #{{{2
-      case str
-      when SEM_VER_RE
-        Gem::Version.new(str).freeze
-      when Gem::Version
-        str.frozen? ? str : str.dup.freeze
-      when String
-        warn "Invalid string #{str}"
-        raise ArgumentError, "Invalid string #{str}"
-      else
-        warn "Invalid string #{str.class}"
-        raise TypeError, "Invalid string #{str.class}"
-      end
+    def self.valid_tag?(tag) #{{{2
+      tag.nil? || TAG_RE_A.match?(tag)
     end #}}}2
     
     protected attr_reader :versions
     # @param [String, Gem::Version, Array<String,String|Gem::Version>, Hash<String,String|Gem::Version>] ver version(s) to use
-    def initialize(ver) #{{{2
-      @versions = []
+    # @param [Array<Symbol,String>] :tags, explicit order of tags. Nil is always the first
+    def initialize(ver=nil, untagged: nil, tags: nil) #{{{2
+      @tags_order = tags || []
+      @tags_order.freeze
+      @untagged = untagged
+      @versions = {}
 
-      add_versions ver
+      add_versions ver if ver
     end #}}}2
+
+    def valid_tag?(tag)   ; self.class.valid_tag?(tag); end
 
     # Return all tags for for the versions, first may be nil if version is untagged
     # @return [Array<Symbol>]
     def tags #{{{2
-      @versions.map(&:first)
+      @tags_order.map{|_t|
+        _t == @untagged ? nil : _t
+      }
+    end #}}}2
+
+
+    def same_minor?(oth) #{{{2
+      @tags_order.all?{|_t|
+        @versions[_t].same_minor?(oth.versions[_t])
+      }
+    end #}}}2
+
+    def same_major?(oth) #{{{2
+      @tags_order.all?{|_t|
+        @versions[_t].same_major?(oth.versions[_t])
+      }
     end #}}}2
 
     def <=>(oth, first_untagged: nil) #{{{2
@@ -107,27 +104,84 @@ module WU
       end
     end #}}}2
 
+    def regexp #{{{2
+      @regexp ||= (
+        Regexp.new( '^(' + @tags_order.map.with_index{|_tag, _i|
+          "(?<#{_tag || '_untagged_'}>(?<tag#{_i}>#{_tag})#{WU::SemVer::SEM_VER_RE.source})"
+        }.join('-') + ')$', Regexp::EXTENDED )
+      ) 
+    end #}}}2
+
+    def clear! #{{{2
+      @versions.clear 
+      self 
+    end #}}}2
+
+    def parse(str) #{{{2
+      self.clone(freeze: false)
+        .clear!
+        .parse!(str)
+    end #}}}2
+
+    def parse!(str) #{{{2
+      if m = regexp.match(str)
+        m.captures.each_slice(WU::SemVer.num_fields) do |_full, tag, ver, _rel, _maj, _min, _patch, _extra, _pkgrel|
+          tag = nil if tag == ''
+          add ver, tag: tag
+        end
+        self
+      end
+    end #}}}2
+
     def to_s #{{{2
-      @versions.map{|_tag, _ver| %Q|#{_tag}#{_ver}|}.join('-')
+      @tags_order.each_with_object([]){|_tag, _acc|
+        next unless _ver = @versions[_tag]
+        _acc << %Q|#{_tag}#{_ver}|
+      }.join('-')
+    end #}}}2
+
+    def add(ver, tag: nil) #{{{2
+      raise ArgumentError, "Invalid tag #{String === _tag ? _tag : _tag.class}" unless valid_tag?(tag)
+      tag = tag&.to_sym
+      @versions[tag] =  WU::SemVer.create(ver)
+      unless @tags_order.include?(tag)
+        @tags_order = @tags_order.dup.send(tag.nil? ? :unshift : :push,tag).freeze 
+        @regexp = nil
+      end
+      self
+    end #}}}2
+
+    def add?(ver, tag: nil) #{{{2
+      return nil unless @tags_order.include?(tag)
+      add ver, tag: tag
+      self
+    end #}}}2
+
+    def add!(ver, tag: nil) #{{{2
+      raise RuntimeError, "Tag not Found: #{tag.inspect}" unless @tags_order.include?(tag)
+      add ver, tag: tag
     end #}}}2
     # @param [String, Gem::Version, Array<String,String|Gem::Version>, Hash<String,String|Gem::Version>] ver version(s) to use
     # @return self
     def add_versions(ver) #{{{2
       case ver
-      when SEM_VER_RE_A
-        @versions << [ nil, self.class.parse_semver(ver)]
+      when WU::SemVer::SEM_VER_RE_A
+        add ver, tag: nil
       when Hash, Array
         ver.each_with_index do |(_tag, _ver),_i|
           _ver, _tag = _tag, nil unless _ver
-          _parsed_ver = self.class.parse_semver(_ver)
+          _tag = nil if _tag == @untagged
+          _parsed_ver = WU::SemVer.create(_ver)
           if _tag.nil?
             if _i == 0
-              @versions << [nil, _parsed_ver] 
+              add _parsed_ver, tag: nil
             else
               raise RuntimeError, "Nil tag must be the first #{_ver}"
             end
           elsif TAG_RE_A.match?(_tag)
-            @versions << [ _tag.to_sym, _parsed_ver ].freeze
+            _tag = _tag.to_sym
+            @versions[_tag] =  _parsed_ver
+            @tags_order = @tags_order.dup.push(_tag).freeze unless @tags_order.include?(_tag)
           else
             raise ArgumentError, "Invalid tag #{String === _tag ? _tag : _tag.class}"
           end
