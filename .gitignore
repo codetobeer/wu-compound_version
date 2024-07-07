@@ -1,0 +1,14 @@
+/*.br
+/.yardoc
+/.bundle
+/.repo-ver
+/.deployment
+/tmp
+\~*
+.\~*
+/tags
+.*.sw[op]
+/pkg
+/Gemfile.lock
+*.gem
+/.byebug_history
