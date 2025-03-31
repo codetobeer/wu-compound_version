@@ -12,3 +12,4 @@
 /Gemfile.lock
 *.gem
 /.byebug_history
+/lib/wu/compound_version/version.rb
