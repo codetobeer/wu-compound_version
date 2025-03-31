@@ -6,7 +6,7 @@ version = begin
           end
 
 Gem::Specification.new do |s|
-  s.name          = "wu-compound-version"
+  s.name          = "wu-compound_version"
   s.version       = version
   s.authors       = ["Emanuele Caratti"]
   s.email         = '103307189+codetobeer@users.noreply.github.com'
